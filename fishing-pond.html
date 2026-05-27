@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; background: #000; }
+#c { display: block; width: 100vw; height: 100vh; }
+
+#hud {
+  position: fixed; top: 16px; left: 16px; z-index: 10;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.hud-card {
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px;
+  padding: 10px 16px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hud-title { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; color: #7dd3fc; }
+.hud-score { font-size: 28px; font-weight: 800; color: #fbbf24; }
+.hud-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+.hud-status { font-size: 14px; font-weight: 600; }
+.status-ready { color: #86efac; }
+.status-wait { color: #fde68a; }
+.status-bite { color: #f87171; animation: pulse 0.4s infinite alternate; }
+.status-reel { color: #a5b4fc; }
+@keyframes pulse { from { opacity:1; } to { opacity:0.4; } }
+
+#catch-log {
+  position: fixed; top: 16px; right: 16px; z-index: 10;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+  max-height: 85vh; overflow: hidden;
+}
+.catch-entry {
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 7px 13px;
+  color: #fff;
+  font-size: 12px;
+  display: flex; align-items: center; gap: 8px;
+  animation: slideIn 0.3s ease;
+  white-space: nowrap;
+}
+@keyframes slideIn { from { transform: translateX(30px); opacity:0; } to { transform: translateX(0); opacity:1; } }
+.catch-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+#message {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -80px);
+  z-index: 20;
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  padding: 14px 28px;
+  border-radius: 16px;
+  font-size: 20px;
+  font-weight: 700;
+  display: none;
+  text-align: center;
+  pointer-events: none;
+}
+
+#btn-wrap {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  z-index: 10;
+}
+#fishBtn {
+  padding: 18px 60px;
+  border: none; border-radius: 50px;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  color: #fff; font-size: 22px; font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(14,165,233,0.5), 0 0 0 3px rgba(255,255,255,0.1);
+  transition: transform 0.1s, box-shadow 0.1s;
+  letter-spacing: 0.5px;
+}
+#fishBtn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(14,165,233,0.6), 0 0 0 3px rgba(255,255,255,0.15); }
+#fishBtn:active:not(:disabled) { transform: translateY(1px); }
+#fishBtn:disabled { background: linear-gradient(135deg, #374151, #1f2937); box-shadow: none; cursor: default; color: #9ca3af; }
+#fishBtn.bite-mode {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 8px 32px rgba(239,68,68,0.6), 0 0 0 3px rgba(255,255,255,0.1);
+  animation: btnPulse 0.35s infinite alternate;
+}
+@keyframes btnPulse { from { box-shadow: 0 8px 32px rgba(239,68,68,0.6), 0 0 0 3px rgba(255,255,255,0.1); } to { box-shadow: 0 12px 48px rgba(239,68,68,0.9), 0 0 0 6px rgba(239,68,68,0.3); } }
+
+#tip { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,0.4); font-size:12px; z-index:10; pointer-events:none; }
+
+#combo-badge {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  font-size: 42px; font-weight: 900;
+  color: #fbbf24;
+  display: none;
+  text-shadow: 0 0 40px rgba(251,191,36,0.8);
+  pointer-events: none;
+  animation: comboAnim 0.6s ease forwards;
+}
+@keyframes comboAnim { 0%{transform:translate(-50%,-50%) scale(0.4); opacity:1;} 70%{transform:translate(-50%,-50%) scale(1.1); opacity:1;} 100%{transform:translate(-50%,-50%) scale(1); opacity:0;} }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud-card">
+    <div class="hud-title">Deep Hook</div>
+  </div>
+  <div class="hud-card">
+    <div class="hud-label">Score</div>
+    <div class="hud-score" id="score">0</div>
+  </div>
+  <div class="hud-card">
+    <div class="hud-label">Status</div>
+    <div class="hud-status status-ready" id="status">Ready</div>
+    <div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.45);" id="streak-txt"></div>
+  </div>
+</div>
+
+<div id="catch-log"></div>
+<div id="message"></div>
+<div id="combo-badge"></div>
+<div id="btn-wrap"><button id="fishBtn" onclick="castRod()">CAST </button></div>
+<div id="tip">Tip: Cast and wait for the bite — then click fast!</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+const FISH_TYPES = [
+  { name: 'Tilapia',    species: 'Tilapia',   color: 0xff8c00, tail: 0xdd4400, pts: 1,  rarity: 'common',    dot: '#fb923c', emoji: '🟠' },
+  { name: 'Hito',        species: 'Hito',       color: 0x5a8a30, tail: 0x2d5a10, pts: 2,  rarity: 'uncommon',  dot: '#4ade80', emoji: '🟢' },
+  { name: 'Janitor Fish',       species: 'Janitor Fish',      color: 0x7a5c9a, tail: 0x4a2a6a, pts: 3,  rarity: 'rare',      dot: '#c084fc', emoji: '🟣' },
+  { name: 'Koi',         species: 'Koi',        color: 0xe03020, tail: 0x901010, pts: 4,  rarity: 'epic',      dot: '#f87171', emoji: '🔴' },
+  { name: 'Bangus',  species: 'Bangus',  color: 0xffc200, tail: 0xcc8800, pts: 5, rarity: 'legendary', dot: '#fbbf24', emoji: '🌟' },
+];
+const RARITY_COLORS = { common:'#9ca3af', uncommon:'#4ade80', rare:'#818cf8', epic:'#e879f9', legendary:'#fbbf24' };
+
+let scene, camera, renderer;
+let mainFish, bobber, hook, line, rodGroup;
+let pondFishes = [];
+let score = 0, streak = 0;
+let gameState = 'ready';
+let biteTimeout, currentFishType;
+
+const hookStart = new THREE.Vector3(2.7, 1.25, 2.3);
+const hookTarget = new THREE.Vector3(0, 0.18, -1.8);
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.FogExp2(0xb0d4f0, 0.025);
+
+  camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, 0.1, 500);
+  camera.position.set(0, 3.5, 9);
+  camera.lookAt(0, 0, 0);
+  scene.add(camera);
+
+  renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+
+  const amb = new THREE.AmbientLight(0xfff8f0, 0.5);
+  scene.add(amb);
+
+  const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+  sun.position.set(8, 14, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 0.1;
+  sun.shadow.camera.far = 80;
+  sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+  sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+  sun.shadow.bias = -0.001;
+  scene.add(sun);
+
+  const fill = new THREE.DirectionalLight(0x8ab4d4, 0.4);
+  fill.position.set(-5, 4, -5);
+  scene.add(fill);
+
+  buildWorld();
+  buildMainFish();
+  buildSwimmingFish();
+  buildRod();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  animate();
+}
+
+function buildWorld() {
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(80, 80),
+    new THREE.MeshLambertMaterial({ color: 0x3a7d32 })
+  );
+  ground.rotation.x = -Math.PI/2;
+  ground.position.y = -0.05;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const shore = new THREE.Mesh(
+    new THREE.RingGeometry(9, 11.5, 64),
+    new THREE.MeshLambertMaterial({ color: 0xd4a96a, side: THREE.DoubleSide })
+  );
+  shore.rotation.x = -Math.PI/2;
+  shore.position.y = 0.01;
+  scene.add(shore);
+
+  const pond = new THREE.Mesh(
+    new THREE.CircleGeometry(9, 128),
+    new THREE.MeshLambertMaterial({ color: 0x0d6fa0, transparent: true, opacity: 0.92 })
+  );
+  pond.rotation.x = -Math.PI/2;
+  pond.position.y = 0.02;
+  scene.add(pond);
+
+  const shimmer = new THREE.Mesh(
+    new THREE.CircleGeometry(8.8, 128),
+    new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.12 })
+  );
+  shimmer.rotation.x = -Math.PI/2;
+  shimmer.position.y = 0.035;
+  scene.add(shimmer);
+
+  const rockColors = [0x888888, 0x707070, 0x999999, 0x6b6b6b];
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2;
+    const r = 9.8 + Math.random() * 1.5;
+    const rock = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2 + Math.random() * 0.35, 8, 6),
+      new THREE.MeshLambertMaterial({ color: rockColors[i % rockColors.length] })
+    );
+    rock.position.set(Math.cos(a)*r, 0.12 + Math.random()*0.1, Math.sin(a)*r);
+    rock.castShadow = true;
+    scene.add(rock);
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const r = 14 + Math.random() * 6;
+    addTree(Math.cos(a)*r, Math.sin(a)*r);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const lpa = Math.random() * Math.PI * 2;
+    const lpr = 3 + Math.random() * 5;
+    const lp = new THREE.Mesh(
+      new THREE.CircleGeometry(0.3 + Math.random() * 0.2, 12),
+      new THREE.MeshLambertMaterial({ color: 0x2d7a2d, side: THREE.DoubleSide })
+    );
+    lp.rotation.x = -Math.PI/2;
+    lp.position.set(Math.cos(lpa)*lpr, 0.05, Math.sin(lpa)*lpr);
+    scene.add(lp);
+  }
+
+  addDock();
+}
+
+function addTree(x, z) {
+  const trunkH = 1.5 + Math.random();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.18, trunkH, 8),
+    new THREE.MeshLambertMaterial({ color: 0x6b4c2a })
+  );
+  trunk.position.set(x, trunkH/2, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+
+  const layers = 2 + Math.floor(Math.random() * 2);
+  for (let l = 0; l < layers; l++) {
+    const canopy = new THREE.Mesh(
+      new THREE.ConeGeometry(1.2 - l * 0.2, 1.4 + l * 0.3, 8),
+      new THREE.MeshLambertMaterial({ color: l === 0 ? 0x2d7a2d : 0x3a9a3a })
+    );
+    canopy.position.set(x, trunkH + 0.6 + l * 0.8, z);
+    canopy.castShadow = true;
+    scene.add(canopy);
+  }
+}
+
+function addDock() {
+  const plankMat = new THREE.MeshLambertMaterial({ color: 0x8b6340 });
+  const postMat  = new THREE.MeshLambertMaterial({ color: 0x5c3d1e });
+  for (let p = 0; p < 5; p++) {
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 2.2), plankMat);
+    plank.position.set(1.3 + p * 0.58, 0.22, 5.6);
+    plank.castShadow = true; plank.receiveShadow = true;
+    scene.add(plank);
+  }
+  [[1.3,5],[3.8,5],[1.3,6.7],[3.8,6.7]].forEach(([px,pz]) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.6,8), postMat);
+    post.position.set(px, -0.1, pz);
+    post.castShadow = true;
+    scene.add(post);
+  });
+}
+
+// Build a realistic fish using lathe body, proper fin shapes, scale lines, and per-species traits
+function buildFishMesh(col, tailCol, scale, species) {
+  scale = scale || 1;
+  species = species || 'generic';
+  var g = new THREE.Group();
+
+  // ── species-specific proportions ──────────────────────────────────────────
+  var cfg = {
+    bodyLen:   1.0,  // multiplier on base length
+    bodyDepth: 1.0,  // height of body
+    bodyWidth: 1.0,  // lateral width
+    tailSpread:1.0,  // tail lobe spread
+    dorsalH:   1.0,
+    dorsalL:   0.55, // position along body (-1=snout, +1=tail)
+    pectoralSz:1.0,
+    ventralSz: 1.0,
+    analFinSz: 1.0,
+    mouthOpen: 0.06,
+    lipColor:  0xffe0c0,
+    bellyColor:col,
+    stripeColor: null,
+    spotColor:  null
+  };
+  if (species==='bass')  { cfg.bodyLen=1.1; cfg.bodyDepth=1.15; cfg.dorsalH=1.3; cfg.tailSpread=1.2; cfg.bellyColor=0xd4e8b0; cfg.stripeColor=0x2a4a10; }
+  if (species==='trout') { cfg.bodyLen=1.2; cfg.bodyDepth=0.9;  cfg.dorsalL=0.2; cfg.dorsalH=0.8; cfg.tailSpread=0.95; cfg.bellyColor=0xffe8d0; cfg.spotColor=0xaa3311; }
+  if (species==='koi')   { cfg.bodyLen=1.0; cfg.bodyDepth=1.1; cfg.bodyWidth=1.1; cfg.dorsalH=1.4; cfg.tailSpread=1.3; cfg.bellyColor=0xffffff; cfg.mouthOpen=0.1; }
+  if (species==='goldenkoi') { cfg.bodyLen=1.05; cfg.bodyDepth=1.2; cfg.bodyWidth=1.2; cfg.dorsalH=1.6; cfg.tailSpread=1.5; cfg.bellyColor=0xfffacd; cfg.mouthOpen=0.09; }
+  if (species==='goldfish') { cfg.bodyLen=0.9; cfg.bodyDepth=1.1; cfg.tailSpread=1.1; cfg.bellyColor=0xffcc80; }
+
+  var S = scale;
+  var BL = 0.55 * S * cfg.bodyLen;   // half-body length
+  var BD = 0.34 * S * cfg.bodyDepth; // body max height (radius)
+  var BW = 0.28 * S * cfg.bodyWidth; // body max width
+
+  var bodyMat  = new THREE.MeshPhongMaterial({ color: col,      shininess: 80, specular: 0x88ccff });
+  var tailMat  = new THREE.MeshPhongMaterial({ color: tailCol,  shininess: 60, specular: 0x446688, transparent: true, opacity: 0.92 });
+  var bellyMat = new THREE.MeshPhongMaterial({ color: cfg.bellyColor, shininess: 50 });
+  var finMat   = new THREE.MeshPhongMaterial({ color: tailCol,  shininess: 40, transparent: true, opacity: 0.78, side: THREE.DoubleSide });
+  var eyeWhMat = new THREE.MeshPhongMaterial({ color: 0xf0f0f0, shininess: 30 });
+  var pupilMat = new THREE.MeshBasicMaterial({ color: 0x080808 });
+  var irisMat  = new THREE.MeshBasicMaterial({ color: 0x1a0a00 });
+  var glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  // ── BODY via lathe (profile rotated around X-axis then squeezed) ──────────
+  // Profile points: snout→ crown → belly → tail peduncle
+  // We'll build with a SphereGeometry and carefully scale/shear it,
+  // plus a separate ellipsoid for the belly flash.
+  var bodyGeo = new THREE.SphereGeometry(1, 32, 20);
+  // Morph vertices: give fish-like taper
+  var pos = bodyGeo.attributes.position;
+  for (var vi = 0; vi < pos.count; vi++) {
+    var bx = pos.getX(vi); // -1=tail end, +1=snout
+    var by = pos.getY(vi);
+    var bz = pos.getZ(vi);
+    // taper: narrower at both ends, slightly fuller toward front-third
+    var t = (bx + 1) * 0.5; // 0=tail, 1=snout
+    var r = Math.sqrt(by*by + bz*bz);
+    var taper = Math.sin(t * Math.PI) * (0.7 + 0.55*Math.pow(Math.sin(t*Math.PI), 0.6));
+    var newR = r * taper;
+    var ang = Math.atan2(by, bz);
+    // dorsal flattening: top is flatter than belly
+    var dorsalFlatten = 1.0 - 0.18 * Math.max(0, Math.sin(ang));
+    pos.setXYZ(vi, bx, Math.sin(ang)*newR*dorsalFlatten, Math.cos(ang)*newR);
+  }
+  bodyGeo.computeVertexNormals();
+  var body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.scale.set(BL, BD, BW);
+  g.add(body);
+
+  // belly patch (lighter underside)
+  var bellyGeo = new THREE.SphereGeometry(0.98, 24, 16, 0, Math.PI*2, Math.PI*0.55, Math.PI*0.45);
+  var belly = new THREE.Mesh(bellyGeo, bellyMat);
+  belly.scale.set(BL*0.9, BD*0.95, BW*0.95);
+  belly.position.x = BL*0.05;
+  g.add(belly);
+
+  // ── TAIL (forked, two lobes) ──────────────────────────────────────────────
+  var TS = cfg.tailSpread;
+  function makeTailLobe(sign) {
+    var pts = [];
+    for (var i=0;i<=10;i++) {
+      var t2 = i/10;
+      pts.push(new THREE.Vector2(
+        t2 * 0.55*S*TS,
+        (1-t2) * 0.04*S + t2 * 0.22*S*TS * Math.sin(t2*Math.PI)
+      ));
+    }
+    var lobe = new THREE.Mesh(
+      new THREE.LatheGeometry(pts, 6),
+      tailMat
+    );
+    lobe.scale.z = 0.18 * S;
+    lobe.rotation.y = Math.PI/2;
+    lobe.rotation.z = sign * 0.38;
+    lobe.position.set(-BL - 0.05*S, sign * 0.05*S, 0);
+    return lobe;
+  }
+  g.add(makeTailLobe(1));
+  g.add(makeTailLobe(-1));
+
+  // tail connector peduncle
+  var ped = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07*S, 0.12*S, 0.22*S, 12),
+    bodyMat
+  );
+  ped.rotation.z = Math.PI/2;
+  ped.position.set(-BL + 0.02*S, 0, 0);
+  g.add(ped);
+
+  // ── DORSAL FIN (tall, swept back) ─────────────────────────────────────────
+  var dorsalDH = 0.38*S*cfg.dorsalH;
+  var dorsalShape = new THREE.Shape();
+  dorsalShape.moveTo(0, 0);
+  dorsalShape.bezierCurveTo(-0.18*S, dorsalDH*0.4, -0.06*S, dorsalDH, 0.08*S, dorsalDH);
+  dorsalShape.bezierCurveTo(0.22*S, dorsalDH, 0.3*S, dorsalDH*0.5, 0.32*S, 0);
+  dorsalShape.lineTo(0, 0);
+  var dorsalGeo = new THREE.ShapeGeometry(dorsalShape, 12);
+  var dorsal = new THREE.Mesh(dorsalGeo, finMat);
+  dorsal.rotation.y = Math.PI/2;
+  var dorsalX = BL * (cfg.dorsalL - 0.1);
+  dorsal.position.set(dorsalX, BD*0.92, 0);
+  g.add(dorsal);
+
+  // dorsal fin spines (thin cylinders for detail)
+  var spineCount = 4;
+  for (var si=0; si<spineCount; si++) {
+    var st = si/spineCount;
+    var spineH = dorsalDH * Math.sin((st+0.15)*Math.PI*0.85);
+    var spine = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.006*S, 0.004*S, spineH, 5),
+      new THREE.MeshPhongMaterial({ color: tailCol, transparent:true, opacity:0.6 })
+    );
+    spine.position.set(dorsalX - 0.14*S + st*0.3*S, BD*0.92 + spineH*0.5, 0);
+    g.add(spine);
+  }
+
+  // ── PECTORAL FINS (side fins, angled down) ────────────────────────────────
+  [1, -1].forEach(function(side) {
+    var pecShape = new THREE.Shape();
+    pecShape.moveTo(0,0);
+    pecShape.bezierCurveTo(0.14*S, 0.1*S*cfg.pectoralSz, 0.2*S, 0.04*S, 0.22*S*cfg.pectoralSz, -0.08*S);
+    pecShape.bezierCurveTo(0.16*S, -0.16*S, 0.05*S, -0.12*S, 0, 0);
+    var pecGeo = new THREE.ShapeGeometry(pecShape, 8);
+    var pec = new THREE.Mesh(pecGeo, finMat);
+    pec.rotation.x = side * (-Math.PI*0.35);
+    pec.rotation.y = 0.3;
+    pec.position.set(BL*0.28, -BD*0.1, side * BW*0.96);
+    g.add(pec);
+  });
+
+  // ── PELVIC / VENTRAL FINS ─────────────────────────────────────────────────
+  [1,-1].forEach(function(side) {
+    var vShape = new THREE.Shape();
+    vShape.moveTo(0,0);
+    vShape.lineTo(0.06*S, -0.14*S*cfg.ventralSz);
+    vShape.lineTo(0.18*S*cfg.ventralSz, -0.1*S);
+    vShape.lineTo(0.1*S, 0);
+    vShape.lineTo(0,0);
+    var vGeo = new THREE.ShapeGeometry(vShape, 6);
+    var vent = new THREE.Mesh(vGeo, finMat);
+    vent.rotation.x = side * Math.PI*0.18;
+    vent.rotation.z = -0.3;
+    vent.position.set(BL*-0.05, -BD*0.88, side*BW*0.55);
+    g.add(vent);
+  });
+
+  // ── ANAL FIN (small, under rear) ─────────────────────────────────────────
+  var analShape = new THREE.Shape();
+  analShape.moveTo(0,0);
+  analShape.bezierCurveTo(-0.04*S, -0.12*S*cfg.analFinSz, 0.12*S, -0.14*S*cfg.analFinSz, 0.18*S, 0);
+  analShape.lineTo(0,0);
+  var analGeo = new THREE.ShapeGeometry(analShape, 8);
+  var anal = new THREE.Mesh(analGeo, finMat);
+  anal.rotation.y = Math.PI/2;
+  anal.position.set(-BL*0.38, -BD*0.92, 0);
+  g.add(anal);
+
+  // ── EYES (multi-layer: white sclera, iris, pupil, glint) ─────────────────
+  [1,-1].forEach(function(side) {
+    var eyeX = BL*0.75, eyeY = BD*0.3, eyeZ = side*BW*0.88;
+    var eyeR = 0.065*S;
+
+    var sclera = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 16, 12), eyeWhMat);
+    sclera.position.set(eyeX, eyeY, eyeZ);
+    g.add(sclera);
+
+    var iris = new THREE.Mesh(new THREE.SphereGeometry(eyeR*0.72, 14, 10), irisMat);
+    iris.position.set(eyeX + side*eyeR*0.35, eyeY, eyeZ + side*eyeR*0.2);
+    g.add(iris);
+
+    var pupil = new THREE.Mesh(new THREE.SphereGeometry(eyeR*0.42, 10, 8), pupilMat);
+    pupil.position.set(eyeX + side*eyeR*0.55, eyeY, eyeZ + side*eyeR*0.3);
+    g.add(pupil);
+
+    var glint = new THREE.Mesh(new THREE.SphereGeometry(eyeR*0.18, 6, 6), glintMat);
+    glint.position.set(eyeX + side*eyeR*0.65, eyeY + eyeR*0.3, eyeZ + side*eyeR*0.25);
+    g.add(glint);
+  });
+
+  // ── MOUTH ─────────────────────────────────────────────────────────────────
+  var mouth = new THREE.Mesh(
+    new THREE.TorusGeometry(cfg.mouthOpen*S, 0.012*S, 8, 16, Math.PI),
+    new THREE.MeshPhongMaterial({ color: cfg.lipColor })
+  );
+  mouth.rotation.z = Math.PI/2;
+  mouth.rotation.y = Math.PI/2;
+  mouth.position.set(BL*1.01, -BD*0.12, 0);
+  g.add(mouth);
+
+  // ── SCALE LINES (subtle surface detail via thin tori) ────────────────────
+  var scaleCount = 5;
+  for (var sci=0; sci<scaleCount; sci++) {
+    var sx = BL * (-0.5 + sci * 0.28);
+    var sr = BD * (0.55 + 0.1*Math.sin(sci));
+    var scaleLine = new THREE.Mesh(
+      new THREE.TorusGeometry(sr*0.88, 0.008*S, 6, 20, Math.PI*1.1),
+      new THREE.MeshBasicMaterial({ color: tailCol, transparent:true, opacity:0.18 })
+    );
+    scaleLine.rotation.y = Math.PI/2;
+    scaleLine.position.set(sx, -BD*0.05, 0);
+    g.add(scaleLine);
+  }
+
+  // ── LATERAL LINE (thin stripe along midside) ──────────────────────────────
+  var latLine = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.008*S, 0.008*S, BL*1.4, 6),
+    new THREE.MeshBasicMaterial({ color: tailCol, transparent:true, opacity:0.3 })
+  );
+  latLine.rotation.z = Math.PI/2;
+  latLine.position.set(-BL*0.1, BD*0.04, BW*0.9);
+  g.add(latLine);
+  var latLine2 = latLine.clone();
+  latLine2.position.z = -BW*0.9;
+  g.add(latLine2);
+
+  // ── SPECIES EXTRAS ────────────────────────────────────────────────────────
+  // Bass: dark lateral stripe
+  if (cfg.stripeColor) {
+    var stripe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022*S, 0.022*S, BL*1.6, 6),
+      new THREE.MeshPhongMaterial({ color: cfg.stripeColor, transparent:true, opacity:0.55 })
+    );
+    stripe.rotation.z = Math.PI/2;
+    stripe.position.set(-BL*0.05, BD*0.05, BW*0.82);
+    g.add(stripe);
+    var s2 = stripe.clone(); s2.position.z = -BW*0.82; g.add(s2);
+  }
+
+  // Trout / spots
+  if (cfg.spotColor) {
+    for (var spi=0; spi<8; spi++) {
+      var spot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.025*S + Math.random()*0.02*S, 8, 6),
+        new THREE.MeshPhongMaterial({ color: cfg.spotColor, transparent:true, opacity:0.7 })
+      );
+      spot.position.set(
+        BL*(-0.55 + Math.random()*1.1),
+        BD*(0.3 - Math.random()*0.7),
+        BW*(0.3 + Math.random()*0.5) * (Math.random()<0.5?1:-1)
+      );
+      g.add(spot);
+    }
+  }
+
+  // Koi: whisker barbels
+  if (species==='koi' || species==='goldenkoi') {
+    [1,-1].forEach(function(side) {
+      var barbel = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008*S, 0.003*S, 0.18*S, 5),
+        new THREE.MeshPhongMaterial({ color: 0xffccaa })
+      );
+      barbel.rotation.z = side * 0.5;
+      barbel.position.set(BL*0.98, -BD*0.05, side*0.06*S);
+      g.add(barbel);
+    });
+  }
+
+  return g;
+}
+
+function makeFishShadow(scale) {
+  scale = scale || 1;
+  var g = new THREE.Group();
+  // body shadow — dark semi-transparent ellipse
+  var body = new THREE.Mesh(
+    new THREE.CircleGeometry(0.42 * scale, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false })
+  );
+  body.rotation.x = -Math.PI / 2;
+  body.scale.x = 1.9;
+  g.add(body);
+
+  // tail shadow — small triangle-ish ellipse behind body
+  var tail = new THREE.Mesh(
+    new THREE.CircleGeometry(0.22 * scale, 12),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2, depthWrite: false })
+  );
+  tail.rotation.x = -Math.PI / 2;
+  tail.scale.x = 1.1;
+  tail.position.set(-0.72 * scale, 0, 0);
+  g.add(tail);
+
+  // dorsal fin shadow — thin sliver on top
+  var dorsal = new THREE.Mesh(
+    new THREE.CircleGeometry(0.14 * scale, 10),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15, depthWrite: false })
+  );
+  dorsal.rotation.x = -Math.PI / 2;
+  dorsal.scale.set(0.5, 1.6, 1);
+  dorsal.position.set(0.1 * scale, 0, 0);
+  g.add(dorsal);
+
+  return g;
+}
+
+function buildMainFish() {
+  mainFish = makeFishShadow(1);
+  mainFish.position.set(-4, 0.025, -1);
+  mainFish.userData.angle = 0;
+  scene.add(mainFish);
+}
+
+function buildSwimmingFish() {
+  var tiers = [
+    { speed: 0.004, scale: 0.5,  opacity: 0.22 },
+    { speed: 0.007, scale: 0.65, opacity: 0.28 },
+    { speed: 0.010, scale: 0.45, opacity: 0.18 },
+  ];
+  for (var i = 0; i < 12; i++) {
+    var tier = tiers[i % tiers.length];
+    var sf = makeFishShadow(tier.scale);
+    var angle = Math.random() * Math.PI * 2;
+    var radius = 1.2 + Math.random() * 4.5;
+    sf.position.set(Math.cos(angle)*radius, 0.025, Math.sin(angle)*radius);
+    var dir = Math.random() < 0.5 ? 1 : -1;
+    sf.userData = { angle: angle, radius: radius, speed: tier.speed + Math.random()*0.006, dir: dir, yOff: Math.random()*10 };
+    pondFishes.push(sf);
+    scene.add(sf);
+  }
+}
+
+function buildRod() {
+  rodGroup = new THREE.Group();
+
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0,0,0),
+    new THREE.Vector3(-0.2,1.4,-1.2),
+    new THREE.Vector3(-0.6,2.7,-2.6),
+    new THREE.Vector3(-1.2,3.2,-4)
+  ]);
+  const rod = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 32, 0.04, 10, false),
+    new THREE.MeshLambertMaterial({ color: 0x1a1a2e })
+  );
+  rodGroup.add(rod);
+
+  const handle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16,0.16,1.2,20),
+    new THREE.MeshLambertMaterial({ color: 0xc28b45 })
+  );
+  handle.rotation.x = Math.PI/2;
+  handle.position.set(0.1,-0.35,0.35);
+  rodGroup.add(handle);
+
+  const reelBody = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22,0.22,0.18,16),
+    new THREE.MeshLambertMaterial({ color: 0x2c2c2c })
+  );
+  reelBody.rotation.z = Math.PI/2;
+  reelBody.position.set(0.1,0.16,0.06);
+  rodGroup.add(reelBody);
+
+  const reelRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.34,0.06,16,40),
+    new THREE.MeshLambertMaterial({ color: 0x888888 })
+  );
+  reelRing.rotation.y = Math.PI/2;
+  reelRing.position.set(0.1,0.16,0.05);
+  rodGroup.add(reelRing);
+
+  const hand = new THREE.Mesh(
+    new THREE.SphereGeometry(0.3,24,16),
+    new THREE.MeshLambertMaterial({ color: 0xf1b27a })
+  );
+  hand.position.set(0.25,-0.52,0.52);
+  rodGroup.add(hand);
+
+  rodGroup.position.set(2.3,-1.6,-2.5);
+  rodGroup.rotation.set(-0.15,-0.45,0.25);
+  camera.add(rodGroup);
+
+  hook = new THREE.Mesh(
+    new THREE.TorusGeometry(0.12,0.025,12,24,Math.PI),
+    new THREE.MeshLambertMaterial({ color: 0xcccccc })
+  );
+  hook.rotation.z = Math.PI;
+  scene.add(hook);
+
+  bobber = new THREE.Group();
+  const bobTop = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18,20,16, 0, Math.PI*2, 0, Math.PI/2),
+    new THREE.MeshLambertMaterial({ color: 0xef4444 })
+  );
+  const bobBot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18,20,16, 0, Math.PI*2, Math.PI/2, Math.PI/2),
+    new THREE.MeshLambertMaterial({ color: 0xffffff })
+  );
+  bobTop.castShadow = true;
+  bobber.add(bobTop); bobber.add(bobBot);
+  const stick = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.02,0.02,0.3,8),
+    new THREE.MeshBasicMaterial({ color: 0xff3333 })
+  );
+  stick.position.y = 0.28;
+  bobber.add(stick);
+  scene.add(bobber);
+
+  line = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.005,0.005,1,8),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
+  );
+  scene.add(line);
+
+  resetHook();
+}
+
+function castRod() {
+  if (gameState === 'ready') {
+    gameState = 'casting';
+    setStatus('Casting...', 'status-wait');
+    disableBtn('Casting...');
+    animateCast();
+    return;
+  }
+  if (gameState === 'bite') catchFish();
+}
+
+function animateCast() {
+  var p = 0;
+  var iv = setInterval(function() {
+    p += 0.035;
+    hook.position.lerpVectors(hookStart, hookTarget, p);
+    bobber.position.copy(hook.position);
+    bobber.position.y += 0.3;
+    rodGroup.rotation.x = -0.15 - Math.sin(p*Math.PI)*0.38;
+    updateLine();
+    if (p >= 1) { clearInterval(iv); rodGroup.rotation.x = -0.15; waitForBite(); }
+  }, 16);
+}
+
+function waitForBite() {
+  gameState = 'waiting';
+  setStatus('Waiting for bite...', 'status-wait');
+  disableBtn('Waiting...');
+
+  var weights = [40, 30, 18, 9, 3];
+  var roll = Math.random() * 100;
+  var cum = 0, ftIdx = 0;
+  for (var i = 0; i < weights.length; i++) { cum += weights[i]; if (roll < cum) { ftIdx = i; break; } }
+  currentFishType = FISH_TYPES[ftIdx];
+
+  scene.remove(mainFish);
+  mainFish = makeFishShadow(1);
+  mainFish.position.set(-4, 0.025, -1);
+  mainFish.userData.angle = 0;
+  scene.add(mainFish);
+
+  var delay = 1500 + Math.random() * 3000;
+  setTimeout(function() {
+    var startPos = mainFish.position.clone();
+    var prog = 0;
+    var iv = setInterval(function() {
+      prog += 0.018;
+      var tx = hook.position.x, tz = hook.position.z;
+      mainFish.position.x = startPos.x + (tx - startPos.x) * prog;
+      mainFish.position.z = startPos.z + (tz - startPos.z) * prog;
+      mainFish.position.y = 0.025;
+      // face toward hook
+      var dx = tx - mainFish.position.x, dz = tz - mainFish.position.z;
+      mainFish.rotation.y = Math.atan2(dx, dz);
+      if (prog >= 1) {
+        clearInterval(iv);
+        gameState = 'bite';
+        setStatus('BITE! CATCH NOW!', 'status-bite');
+        showMessage(currentFishType.emoji + ' ' + currentFishType.name + ' is biting!');
+        enableBtn('CATCH!', true);
+        biteTimeout = setTimeout(function() { if (gameState==='bite') missFish(); }, 1200);
+      }
+    }, 16);
+  }, delay);
+}
+
+function catchFish() {
+  gameState = 'reeling';
+  clearTimeout(biteTimeout);
+  score += currentFishType.pts;
+  streak++;
+  document.getElementById('score').innerText = score;
+  document.getElementById('streak-txt').innerText = streak > 1 ? streak + 'x streak!' : '';
+  setStatus('Reeling in!', 'status-reel');
+  showMessage('🎉 Caught a ' + currentFishType.name + '! +' + currentFishType.pts + 'pts');
+  addCatchLog(currentFishType);
+  if (streak >= 3) showCombo(streak);
+  disableBtn('Reeling...');
+  reelBack(true);
+}
+
+function missFish() {
+  gameState = 'reeling';
+  streak = 0;
+  document.getElementById('streak-txt').innerText = '';
+  setStatus('Missed!', 'status-wait');
+  showMessage('💨 Fish got away!');
+  disableBtn('Missed...');
+  reelBack(false);
+}
+
+function reelBack(caught) {
+  if (caught) { mainFish.visible = false; } // shadow disappears when hooked
+  var p = 0;
+  var start = hook.position.clone();
+  var iv = setInterval(function() {
+    p += 0.04;
+    hook.position.lerpVectors(start, hookStart, p);
+    bobber.position.copy(hook.position);
+    bobber.position.y += 0.3;
+    rodGroup.rotation.x = -0.15 - Math.sin(p*Math.PI)*0.3;
+    updateLine();
+    if (p >= 1) { clearInterval(iv); resetGame(); }
+  }, 16);
+}
+
+function resetGame() {
+  gameState = 'ready';
+  rodGroup.rotation.x = -0.15;
+  resetHook();
+  mainFish.visible = true;
+  mainFish.userData.angle = Math.random() * Math.PI * 2;
+  setStatus('Ready', 'status-ready');
+  enableBtn('CAST 🎣', false);
+}
+
+function resetHook() {
+  hook.position.copy(hookStart);
+  bobber.position.copy(hookStart);
+  bobber.position.y += 0.3;
+  updateLine();
+}
+
+function updateLine() {
+  var tip = new THREE.Vector3();
+  rodGroup.localToWorld(tip.set(-1.2,3.2,-4));
+  var mid = new THREE.Vector3().addVectors(tip, hook.position).multiplyScalar(0.5);
+  var dist = tip.distanceTo(hook.position);
+  line.position.copy(mid);
+  line.scale.y = dist;
+  line.lookAt(hook.position);
+  line.rotateX(Math.PI/2);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  var t = Date.now() * 0.001;
+
+  // Dock occupies roughly X: 1.1–4.2, Z: 4.6–7.2 — keep fish clear of it
+  // Returns a safe radius for a given angle: shrink if pointing at dock zone
+  function safeRadius(angle, baseR) {
+    var fx = Math.cos(angle) * baseR;
+    var fz = Math.sin(angle) * baseR;
+    // dock zone with a small buffer
+    var inDockX = fx > 0.6 && fx < 4.6;
+    var inDockZ = fz > 4.2;
+    if (inDockX && inDockZ) {
+      // push fish back toward center by shrinking radius until clear
+      return Math.min(baseR, 3.8);
+    }
+    return baseR;
+  }
+
+  if (gameState === 'ready') {
+    mainFish.userData = mainFish.userData || {};
+    if (!mainFish.userData.angle) mainFish.userData.angle = 0;
+    mainFish.userData.angle += 0.012;
+    var mfR = safeRadius(mainFish.userData.angle, 4.2);
+    mainFish.position.x = Math.cos(mainFish.userData.angle) * mfR;
+    mainFish.position.z = Math.sin(mainFish.userData.angle) * mfR;
+    mainFish.position.y = 0.025;
+    mainFish.rotation.y = -mainFish.userData.angle + Math.PI/2;
+  }
+
+  if (gameState === 'waiting') {
+    hook.position.y = 0.18 + Math.sin(t*1.5)*0.07;
+    bobber.position.copy(hook.position);
+    bobber.position.y += 0.3;
+    updateLine();
+  }
+
+  pondFishes.forEach(function(sf) {
+    sf.userData.angle += sf.userData.speed * sf.userData.dir;
+    var r = safeRadius(sf.userData.angle, sf.userData.radius);
+    sf.position.x = Math.cos(sf.userData.angle) * r;
+    sf.position.z = Math.sin(sf.userData.angle) * r;
+    sf.position.y = 0.025;
+    sf.rotation.y = -sf.userData.angle * sf.userData.dir + Math.PI/2 + (sf.userData.dir < 0 ? Math.PI : 0);
+  });
+
+  renderer.render(scene, camera);
+}
+
+function addCatchLog(ft) {
+  var log = document.getElementById('catch-log');
+  var entry = document.createElement('div');
+  entry.className = 'catch-entry';
+  var rarityColor = RARITY_COLORS[ft.rarity];
+  entry.innerHTML = '<div class="catch-dot" style="background:' + rarityColor + '"></div><span style="color:' + rarityColor + ';font-weight:600">' + ft.name + '</span><span style="color:rgba(255,255,255,0.5)">+' + ft.pts + 'pts</span>';
+  log.insertBefore(entry, log.firstChild);
+  if (log.children.length > 6) log.removeChild(log.lastChild);
+}
+
+function showCombo(n) {
+  var el = document.getElementById('combo-badge');
+  el.style.display = 'block';
+  el.textContent = n + 'x COMBO!';
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = 'comboAnim 0.6s ease forwards';
+  setTimeout(function() { el.style.display = 'none'; }, 700);
+}
+
+function enableBtn(text, bite) {
+  var btn = document.getElementById('fishBtn');
+  btn.textContent = text; btn.disabled = false;
+  btn.className = bite ? 'bite-mode' : '';
+}
+function disableBtn(text) {
+  var btn = document.getElementById('fishBtn');
+  btn.textContent = text; btn.disabled = true; btn.className = '';
+}
+function setStatus(text, cls) {
+  var el = document.getElementById('status');
+  el.textContent = text;
+  el.className = 'hud-status ' + (cls || 'status-ready');
+}
+function showMessage(text) {
+  var m = document.getElementById('message');
+  m.textContent = text; m.style.display = 'block';
+  setTimeout(function() { m.style.display = 'none'; }, 1600);
+}
+
+init();
+</script>
+</body>
+</html>
